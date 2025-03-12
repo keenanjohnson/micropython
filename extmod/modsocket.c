@@ -326,18 +326,19 @@ static mp_obj_t socket_sendto(mp_obj_t self_in, mp_obj_t data_in, mp_obj_t addr_
 static MP_DEFINE_CONST_FUN_OBJ_3(socket_sendto_obj, socket_sendto);
 
 // method socket.recvfrom(bufsize)
-static mp_obj_t socket_recvfrom(mp_obj_t self_in, mp_obj_t len_in) {
-    mod_network_socket_obj_t *self = MP_OBJ_TO_PTR(self_in);
+static mp_obj_t socket_recvfrom(size_t n_args, const mp_obj_t *args) {
+    mod_network_socket_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     if (self->nic == MP_OBJ_NULL) {
         // not connected
         mp_raise_OSError(MP_ENOTCONN);
     }
     vstr_t vstr;
-    vstr_init_len(&vstr, mp_obj_get_int(len_in));
+    vstr_init_len(&vstr, mp_obj_get_int(args[1]));
     byte ip[4];
     mp_uint_t port;
     int _errno;
-    mp_int_t ret = self->nic_protocol->recvfrom(self, (byte *)vstr.buf, vstr.len, ip, &port, &_errno);
+    int flags = (n_args > 2) ? mp_obj_get_int(args[2]) : 0;  // Get flags if provided
+    mp_int_t ret = self->nic_protocol->recvfrom(self, (byte *)vstr.buf, vstr.len, ip, &port, &_errno, flags);  // Pass flags to protocol
     if (ret == -1) {
         mp_raise_OSError(_errno);
     }
@@ -351,7 +352,7 @@ static mp_obj_t socket_recvfrom(mp_obj_t self_in, mp_obj_t len_in) {
     tuple[1] = netutils_format_inet_addr(ip, port, NETUTILS_BIG);
     return mp_obj_new_tuple(2, tuple);
 }
-static MP_DEFINE_CONST_FUN_OBJ_2(socket_recvfrom_obj, socket_recvfrom);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(socket_recvfrom_obj, 2, 3, socket_recvfrom);
 
 // method socket.setsockopt(level, optname, value)
 static mp_obj_t socket_setsockopt(size_t n_args, const mp_obj_t *args) {
@@ -633,6 +634,8 @@ static const mp_rom_map_elem_t mp_module_socket_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_SO_KEEPALIVE), MP_ROM_INT(MOD_NETWORK_SO_KEEPALIVE) },
     { MP_ROM_QSTR(MP_QSTR_SO_SNDTIMEO), MP_ROM_INT(MOD_NETWORK_SO_SNDTIMEO) },
     { MP_ROM_QSTR(MP_QSTR_SO_RCVTIMEO), MP_ROM_INT(MOD_NETWORK_SO_RCVTIMEO) },
+
+    { MP_ROM_QSTR(MP_QSTR_MSG_PEEK), MP_ROM_INT(0x01) },
 
     /*
     { MP_ROM_QSTR(MP_QSTR_IPPROTO_IP), MP_ROM_INT(MOD_NETWORK_IPPROTO_IP) },

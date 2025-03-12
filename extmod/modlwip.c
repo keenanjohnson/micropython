@@ -637,42 +637,45 @@ static mp_uint_t lwip_raw_udp_send(lwip_socket_obj_t *socket, const byte *buf, m
 }
 
 // Helper function for recv/recvfrom to handle raw/UDP packets
-static mp_uint_t lwip_raw_udp_receive(lwip_socket_obj_t *socket, byte *buf, mp_uint_t len, ip_addr_t *ip, mp_uint_t *port, int *_errno) {
+static mp_uint_t lwip_raw_udp_receive(lwip_socket_obj_t *socket, byte *buf, mp_uint_t len,
+    ip_addr_t *ip, mp_uint_t *port, int *_errno, int flags) {
 
-    if (socket->incoming.pbuf == NULL) {
-        if (socket->timeout == 0) {
-            // Non-blocking socket.
-            *_errno = MP_EAGAIN;
-            return -1;
-        }
+    struct netbuf *netbuf = NULL;
+    err_t err;
 
-        // Wait for data to arrive on UDP socket.
-        mp_uint_t start = mp_hal_ticks_ms();
-        while (socket->incoming.pbuf == NULL) {
-            if (socket->timeout != -1 && mp_hal_ticks_ms() - start > socket->timeout) {
-                *_errno = MP_ETIMEDOUT;
-                return -1;
-            }
-            poll_sockets();
+    if (socket->rcv_timeout == 0) {
+        // Non-blocking receive
+        err = netconn_recv(socket->pcb.raw, &netbuf);
+    } else {
+        // Blocking receive
+        err = netconn_recv_timeout(socket->pcb.raw, &netbuf, socket->rcv_timeout);
+    }
+
+    if (err != ERR_OK) {
+        if (err == ERR_TIMEOUT) {
+            *_errno = MP_ETIMEDOUT;
+        } else if (err == ERR_WOULDBLOCK) {
+            *_errno = MP_EWOULDBLOCK;
+        } else {
+            *_errno = MP_EIO;
         }
+        return -1;
     }
 
     if (ip != NULL) {
-        memcpy(ip, &socket->peer, sizeof(socket->peer));
-        *port = socket->peer_port;
+        *ip = netbuf->addr;
+    }
+    if (port != NULL) {
+        *port = netbuf->port;
     }
 
-    struct pbuf *p = socket->incoming.pbuf;
+    mp_uint_t ret = netbuf_copy(netbuf, buf, len);
 
-    MICROPY_PY_LWIP_ENTER
+    if (!(flags & MSG_PEEK)) {
+        netbuf_delete(netbuf);
+    }
 
-    u16_t result = pbuf_copy_partial(p, buf, ((p->tot_len > len) ? len : p->tot_len), 0);
-    pbuf_free(p);
-    socket->incoming.pbuf = NULL;
-
-    MICROPY_PY_LWIP_EXIT
-
-    return (mp_uint_t)result;
+    return ret;
 }
 
 // For use in stream virtual methods
@@ -1236,7 +1239,7 @@ static mp_obj_t lwip_socket_recv(mp_obj_t self_in, mp_obj_t len_in) {
         #if MICROPY_PY_LWIP_SOCK_RAW
         case MOD_NETWORK_SOCK_RAW:
         #endif
-            ret = lwip_raw_udp_receive(socket, (byte *)vstr.buf, len, NULL, NULL, &_errno);
+            ret = lwip_raw_udp_receive(socket, (byte *)vstr.buf, len, NULL, NULL, &_errno, 0);
             break;
     }
     if (ret == -1) {
@@ -1308,7 +1311,7 @@ static mp_obj_t lwip_socket_recvfrom(mp_obj_t self_in, mp_obj_t len_in) {
         #if MICROPY_PY_LWIP_SOCK_RAW
         case MOD_NETWORK_SOCK_RAW:
         #endif
-            ret = lwip_raw_udp_receive(socket, (byte *)vstr.buf, len, &ip, &port, &_errno);
+            ret = lwip_raw_udp_receive(socket, (byte *)vstr.buf, len, &ip, &port, &_errno, 0);
             break;
     }
     if (ret == -1) {
@@ -1492,7 +1495,7 @@ static mp_uint_t lwip_socket_read(mp_obj_t self_in, void *buf, mp_uint_t size, i
         #if MICROPY_PY_LWIP_SOCK_RAW
         case MOD_NETWORK_SOCK_RAW:
         #endif
-            return lwip_raw_udp_receive(socket, buf, size, NULL, NULL, errcode);
+            return lwip_raw_udp_receive(socket, buf, size, NULL, NULL, errcode, 0);
     }
     // Unreachable
     return MP_STREAM_ERROR;
