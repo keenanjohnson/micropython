@@ -1,4 +1,5 @@
-# Test TCP server and client with TLS-PSK, using set_psk_identity(), set_psk_key(), and set_ciphers("PSK").
+# Test TCP server and client with TLS-PSK, using set_psk_identity(), 
+# set_psk_key(), and set_ciphers("PSK").
 
 try:
     import socket
@@ -9,14 +10,18 @@ except ImportError:
 
 PORT = 8000
 
-# Server
+
+# TLS Server
 def instance0():
     multitest.globals(IP=multitest.get_network_ip())
+    
     s = socket.socket()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(socket.getaddrinfo("0.0.0.0", PORT)[0][-1])
     s.listen(1)
+    
     multitest.next()
+    
     s2, _ = s.accept()
     server_ctx = tls.SSLContext(tls.PROTOCOL_TLS_SERVER)
     
@@ -26,13 +31,15 @@ def instance0():
     server_ctx.set_ciphers("PSK")
     
     s2 = server_ctx.wrap_socket(s2, server_side=True)
+
     print(s2.read(16))
     s2.write(b"server to client")
+
     s2.close()
     s.close()
 
 
-# Client
+# TLS Client
 def instance1():
     multitest.next()
     s = socket.socket()
